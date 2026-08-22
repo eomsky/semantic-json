@@ -25,7 +25,6 @@ def detect_language(text: str) -> str:
 
 
 def split_sentences(text: str):
-    # 원문 offset을 보존하는 문장 분리 (Sentence splitting with source offsets)
     spans=[]; start=0
     for m in re.finditer(r"(?<=[.!?])\s+|\n{2,}", text):
         end=m.start(); s=text[start:end].strip()
@@ -39,10 +38,7 @@ def split_sentences(text: str):
 
 
 def split_clauses(sentence: str, language: str):
-    """의미 범위가 다른 절을 보수적으로 분리 (Conservatively split clauses with distinct semantic scope)."""
     if language=="ko":
-        # '~예정이며, 중장기적으로...'처럼 시간/판단 범위가 달라지는 연결절을 분리한다.
-        # (Split Korean connective clauses when temporal/epistemic scope changes.)
         pattern=r"(?<=며),?\s+(?=(?:다만\s+)?(?:중장기|중기|장기적으로|현재|향후|내년))"
     else:
         pattern=r"\s*;\s*|,?\s+(?=(?:however|nevertheless|accordingly|therefore)\b)"
@@ -79,32 +75,38 @@ def scope_for(clause: str, language: str) -> Scope:
         uncertain=difficult or any(re.search(p,clause) for p in KO_UNCERTAIN_PATTERNS)
         possible=any(x in clause for x in KO_POSSIBLE)
         condition=next((x for x in KO_CONDITION if x in clause),"")
-        if any(x in clause for x in KO_MEDIUM_TERM): time="medium_term"
-        elif any(x in clause for x in KO_FUTURE): time="future"
-        elif "현재" in clause or "현재까지" in clause: time="current"
-        else: time=""
+        if any(x in clause for x in KO_MEDIUM_TERM): temporal="medium_term"
+        elif any(x in clause for x in KO_FUTURE): temporal="future"
+        elif "현재" in clause or "현재까지" in clause: temporal="current"
+        else: temporal=""
         negative=any(x in clause for x in KO_NEG)
     else:
         difficult="difficult to conclude" in t
         uncertain=difficult or any(x in t for x in EN_UNCERTAIN)
         possible=any(x in t for x in EN_POSSIBLE)
         condition=next((x.strip() for x in EN_CONDITION if x in t),"")
-        if any(x in t for x in EN_MEDIUM_TERM): time="medium_term"
-        elif any(x in t for x in EN_FUTURE): time="future"
-        elif " current" in t or "to date" in t: time="current"
-        else: time=""
+        if any(x in t for x in EN_MEDIUM_TERM): temporal="medium_term"
+        elif any(x in t for x in EN_FUTURE): temporal="future"
+        elif " current" in t or "to date" in t: temporal="current"
+        else: temporal=""
         negative=any(x in t for x in EN_NEG)
-    if difficult: stance="difficult_to_conclude"
-    elif uncertain: stance="uncertain"
-    elif possible: stance="possible"
-    else: stance="asserted"
+    if difficult: epistemic="difficult_to_conclude"
+    elif uncertain: epistemic="uncertain"
+    elif possible: epistemic="possible"
+    else: epistemic="asserted"
     speaker="company" if ("회사 측" in clause or "management" in t or "company expects" in t) else ""
     if "당행" in clause or "bank reviewer" in t or "the bank" in t: speaker="bank"
-    return Scope(polarity="negative" if negative else "positive",modality=stance if stance!="asserted" else "asserted",stance=stance,time=time,condition=condition,speaker=speaker)
+    return Scope(
+        proposition_polarity="negative" if negative else "affirmative",
+        epistemic_status=epistemic,
+        temporal_scope=temporal,
+        condition=condition,
+        speaker=speaker,
+    )
 
 
 def importance_for(clause: str, scope: Scope) -> str:
-    if scope.stance in {"uncertain","difficult_to_conclude"}: return "core"
+    if scope.epistemic_status in {"uncertain","difficult_to_conclude"}: return "core"
     finance=("상환","차입","부채","유동성","현금","수익","매출","이익","담보","만기","repay","debt","borrow","liquidity","cash","profit","revenue","margin","maturity","leverage")
     return "supporting" if any(x in clause.lower() for x in finance) else "background"
 
@@ -129,7 +131,6 @@ def compile(text: str, *, document_id: str="document", language: str="auto") -> 
             for surface,eid in mentions:
                 entities.setdefault(eid,{"id":eid,"aliases":[]})
                 if surface not in entities[eid]["aliases"]: entities[eid]["aliases"].append(surface)
-
         sentence_prop_ids=[]
         for local_start,local_end,clause in split_clauses(sentence,lang):
             clause_mentions=entity_mentions(clause)
@@ -138,11 +139,8 @@ def compile(text: str, *, document_id: str="document", language: str="auto") -> 
             abs_start=start+local_start; abs_end=start+local_end
             propositions.append(Proposition(id=pid,entity_id=clause_entity,claim=clause,source=SourceSpan(start=abs_start,end=abs_end,text=clause),scope=sc,importance=importance_for(clause,sc)))
             sentence_prop_ids.append(pid)
-
-        # 접속 표지는 원문에 명시된 관계만 기록한다 (Record only explicitly marked discourse relations).
         for rtype,marker in relation_types(sentence,lang):
             from_id=sentence_prop_ids[0] if sentence_prop_ids else ""
             to_id=sentence_prop_ids[1] if len(sentence_prop_ids)>1 else None
             relations.append(Relation(id=f"R{len(relations)+1}",type=rtype,from_id=from_id,to_id=to_id,marker=marker))
-
-    return SemanticDocument(document_id=document_id,language=lang,text=text,entities=entities,propositions=propositions,relations=relations,diagnostics={"compiler":"semantic_json_rule_compiler_v0.1.0a2","source_grounded":all(p.source.text in text for p in propositions),"unknown_entity_propositions":sum(p.entity_id=="UNKNOWN" for p in propositions)})
+    return SemanticDocument(document_id=document_id,language=lang,text=text,entities=entities,propositions=propositions,relations=relations,diagnostics={"compiler":"semantic_json_rule_compiler_v0.1.0a4","grammar":"semantic_json_grammar_v0.1","source_grounded":all(p.source.text in text for p in propositions),"unknown_entity_propositions":sum(p.entity_id=="UNKNOWN" for p in propositions)})
