@@ -1,0 +1,10 @@
+{
+  "query_ko": "B기업의 재무상태와 상환능력에 관련된 내용을 찾아줘.",
+  "query_en": "Find information relevant to B Corp.'s financial condition and debt repayment capacity.",
+  "relevant_documents": ["doc_001", "doc_002"],
+  "acceptance": {
+    "document_recall": 1.0,
+    "false_document_retrieval": 0,
+    "entity_contamination": 0
+  }
+}
