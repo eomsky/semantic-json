@@ -10,7 +10,7 @@ def _repo():
         "B기업의 중장기 상환능력 유지 여부는 불확실하다.\n\n"
         "C기업은 별도 사업을 영위한다."
     )
-    repo = SemanticRepository()
+    repo = SemanticRepository(region_model="lite", compatibility_threshold=0.0)
     repo.add(compile(text, document_id="doc_002", source_uri="file:///docs/doc_002.txt"))
     return repo
 
