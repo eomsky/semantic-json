@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0a2
+
+- Add the versioned `semantic-json-transport/region-dataset/v0.1` training-data schema.
+- Add `RegionQuery`, `RegionCandidate`, and structured `TeacherDecision` types.
+- Expand `LLMRegionTeacher` to preserve decision, teacher score, confidence, and reason codes without depending on any LLM provider SDK.
+- Add automatic adjacent-pair, hard-candidate, and easy-candidate generation from source documents and queries.
+- Mine hard candidates from query-relevant, semantically similar non-adjacent or cross-document units; teacher labeling remains authoritative.
+- Add confidence filtering, JSONL save/load, dataset summaries, and schema validation.
+- Keep dataset generation dependency-light; explicit encoder fine-tuning remains behind the `training` extra.
+- Add confidence-aware Region Encoder fine-tuning input filtering.
+
 ## 0.2.0a1
 
 - Reframe the core problem around query-conditioned Region Compatibility rather than precomputed semantic grammar.
