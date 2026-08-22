@@ -3,10 +3,18 @@ from .repository import SemanticRepository, SemanticMatch, EvidenceRegion
 from .embeddings import LiteEmbedder, MultilingualE5Embedder
 from .schemas import SemanticDocument, Proposition, Relation, Scope, SourceSpan
 
-__version__ = "0.1.0a5"
+__version__ = "0.1.0a6"
 
 __all__ = [
-    "compile", "SemanticRepository", "SemanticMatch", "EvidenceRegion",
-    "LiteEmbedder", "MultilingualE5Embedder",
-    "SemanticDocument", "Proposition", "Relation", "Scope", "SourceSpan"
+    "compile",
+    "SemanticRepository",
+    "SemanticMatch",
+    "EvidenceRegion",
+    "LiteEmbedder",
+    "MultilingualE5Embedder",
+    "SemanticDocument",
+    "Proposition",
+    "Relation",
+    "Scope",
+    "SourceSpan",
 ]
