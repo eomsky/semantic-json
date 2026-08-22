@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semantic-json-transport"
-version = "0.1.0a4"
-description = "A lightweight semantic transport layer for preserving meaning before LLM context construction."
+version = "0.1.0a5"
+description = "A lightweight semantic transport layer with query-time evidence region retrieval for LLM context construction."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
