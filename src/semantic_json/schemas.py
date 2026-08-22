@@ -2,16 +2,17 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict, field
 from typing import Any
 
+
 @dataclass
 class Scope:
     """독립적인 의미 범위 축 (Independent semantic scope dimensions)."""
+
     proposition_polarity: str = "affirmative"
     epistemic_status: str = "asserted"
     temporal_scope: str = ""
     condition: str = ""
     speaker: str = ""
 
-    # 하위 호환 alias (Backward-compatible aliases)
     @property
     def polarity(self) -> str:
         return "positive" if self.proposition_polarity == "affirmative" else "negative"
@@ -30,11 +31,13 @@ class Scope:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Scope":
-        # a1-a3 JSON도 읽을 수 있게 변환 (Read legacy a1-a3 serialized scopes)
         polarity = data.get("proposition_polarity")
         if polarity is None:
             polarity = "negative" if data.get("polarity") == "negative" else "affirmative"
-        epistemic = data.get("epistemic_status", data.get("stance", data.get("modality", "asserted")))
+        epistemic = data.get(
+            "epistemic_status",
+            data.get("stance", data.get("modality", "asserted")),
+        )
         temporal = data.get("temporal_scope", data.get("time", ""))
         return cls(
             proposition_polarity=polarity,
@@ -44,11 +47,13 @@ class Scope:
             speaker=data.get("speaker", ""),
         )
 
+
 @dataclass
 class SourceSpan:
     start: int
     end: int
     text: str
+
 
 @dataclass
 class Proposition:
@@ -59,6 +64,7 @@ class Proposition:
     scope: Scope = field(default_factory=Scope)
     importance: str = "supporting"
 
+
 @dataclass
 class Relation:
     id: str
@@ -66,6 +72,7 @@ class Relation:
     from_id: str
     to_id: str | None = None
     marker: str = ""
+
 
 @dataclass
 class SemanticDocument:
@@ -76,12 +83,14 @@ class SemanticDocument:
     propositions: list[Proposition]
     relations: list[Relation]
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    source_uri: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self, *, ensure_ascii: bool = False, indent: int = 2) -> str:
         import json
+
         return json.dumps(self.to_dict(), ensure_ascii=ensure_ascii, indent=indent)
 
     @classmethod
@@ -106,4 +115,5 @@ class SemanticDocument:
             propositions=props,
             relations=rels,
             diagnostics=data.get("diagnostics", {}),
+            source_uri=data.get("source_uri", ""),
         )

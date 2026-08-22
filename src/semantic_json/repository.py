@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
+from typing import Iterator
+
 import numpy as np
 
 from .schemas import SemanticDocument, Proposition
 from .embeddings import LiteEmbedder
 from .compiler import entity_mentions
+
+
+TRANSPORT_SCHEMA = "semantic-json-transport/context/v1"
 
 
 @dataclass
@@ -33,6 +39,90 @@ class EvidenceRegion:
     text: str
     anchor_proposition_ids: list[str]
     entity_ids: list[str]
+    region_id: str = ""
+    source_uri: str = ""
+    document_sha256: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "region_id": self.region_id,
+            "score": self.score,
+            "entities": list(self.entity_ids),
+            "source": {
+                "document_id": self.document_id,
+                "uri": self.source_uri,
+                "start_char": self.start_char,
+                "end_char": self.end_char,
+                "start_line": self.start_line,
+                "end_line": self.end_line,
+                "document_sha256": self.document_sha256,
+            },
+            "anchors": list(self.anchor_proposition_ids),
+            "text": self.text,
+        }
+
+
+@dataclass
+class SearchResult:
+    """Canonical structured transport result; also behaves like a region sequence."""
+
+    query: str
+    regions: list[EvidenceRegion]
+    schema: str = TRANSPORT_SCHEMA
+
+    def __iter__(self) -> Iterator[EvidenceRegion]:
+        return iter(self.regions)
+
+    def __len__(self) -> int:
+        return len(self.regions)
+
+    def __getitem__(self, index):
+        return self.regions[index]
+
+    def __bool__(self) -> bool:
+        return bool(self.regions)
+
+    def to_dict(self) -> dict:
+        documents: dict[str, dict] = {}
+        for region in self.regions:
+            doc = documents.setdefault(
+                region.document_id,
+                {
+                    "document_id": region.document_id,
+                    "source_uri": region.source_uri,
+                    "document_sha256": region.document_sha256,
+                    "regions": [],
+                },
+            )
+            doc["regions"].append(region.to_dict())
+        return {
+            "schema": self.schema,
+            "query": self.query,
+            "region_count": len(self.regions),
+            "document_count": len(documents),
+            "documents": list(documents.values()),
+        }
+
+    def to_json(self, *, ensure_ascii: bool = False, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=ensure_ascii, indent=indent)
+
+    def to_text(self) -> str:
+        lines = ["=== EVIDENCE REGIONS ===", f"query={self.query}"]
+        for region in self.regions:
+            location = (
+                f"{region.document_id} lines={region.start_line}-{region.end_line} "
+                f"chars={region.start_char}-{region.end_char} score={region.score:.4f}"
+            )
+            if region.source_uri:
+                location += f" source={region.source_uri}"
+            lines += [
+                "",
+                f"[{region.region_id}] {location}",
+                f"anchors={','.join(region.anchor_proposition_ids)} "
+                f"entities={','.join(region.entity_ids)}",
+                region.text,
+            ]
+        return "\n".join(lines).strip()
 
 
 class SemanticRepository:
@@ -47,6 +137,10 @@ class SemanticRepository:
     def add(self, doc: SemanticDocument) -> None:
         self.documents[doc.document_id] = doc
         self._matrix = None
+
+    @staticmethod
+    def _document_sha256(doc: SemanticDocument) -> str:
+        return hashlib.sha256(doc.text.encode("utf-8")).hexdigest()
 
     def _search_text(self, doc: SemanticDocument, p: Proposition) -> str:
         aliases = " ".join(doc.entities.get(p.entity_id, {}).get("aliases", []))
@@ -78,12 +172,11 @@ class SemanticRepository:
         top_k: int = 50,
         entity_filter: bool = True,
     ) -> list[SemanticMatch]:
-        """Search small semantic units. Prefer search() for downstream LLM context."""
+        """Search small semantic units. Prefer search() for downstream transport."""
         if self._matrix is None:
             self.build_index()
         if not self._records:
             return []
-
         scores = self._matrix @ self.embedder.encode_query(query)
         q_entities = {eid for _, eid in entity_mentions(query)}
         candidates = []
@@ -102,7 +195,6 @@ class SemanticRepository:
 
     @staticmethod
     def _compatible_entity(candidate: Proposition, anchor_entities: set[str]) -> bool:
-        """Prevent expansion across an explicit, unrelated entity boundary."""
         if candidate.entity_id == "UNKNOWN":
             return True
         return candidate.entity_id in anchor_entities
@@ -113,7 +205,6 @@ class SemanticRepository:
         anchor_ids: set[str],
         max_context_chars: int,
     ) -> list[Proposition]:
-        """Shrink only at proposition boundaries while preserving every anchor."""
         if not props:
             return []
         if max_context_chars <= 0:
@@ -124,18 +215,13 @@ class SemanticRepository:
 
         if span_len(props) <= max_context_chars:
             return props
-
         anchor_positions = [i for i, p in enumerate(props) if p.id in anchor_ids]
         if not anchor_positions:
             return props
-
         lo, hi = min(anchor_positions), max(anchor_positions)
         kept = props[lo : hi + 1]
-
-        # Anchors are never truncated, even when their exact source span exceeds the budget.
         if span_len(kept) >= max_context_chars:
             return kept
-
         left, right = lo - 1, hi + 1
         while left >= 0 or right < len(props):
             options = []
@@ -143,9 +229,10 @@ class SemanticRepository:
                 options.append((left, props[left : hi + 1]))
             if right < len(props):
                 options.append((right, props[lo : right + 1]))
-
             added = False
-            for idx, candidate in sorted(options, key=lambda x: abs(x[0] - (lo + hi) / 2)):
+            for idx, candidate in sorted(
+                options, key=lambda x: abs(x[0] - (lo + hi) / 2)
+            ):
                 if span_len(candidate) <= max_context_chars:
                     if idx < lo:
                         lo = idx
@@ -170,11 +257,9 @@ class SemanticRepository:
         after: int,
         entity_safe: bool,
     ) -> tuple[int, int]:
-        """Expand around an anchor without crossing an unrelated explicit entity."""
         props = doc.propositions
         anchor_entities = {anchor_entity}
         lo = hi = anchor_index
-
         for _ in range(before):
             nxt = lo - 1
             if nxt < 0:
@@ -182,7 +267,6 @@ class SemanticRepository:
             if entity_safe and not self._compatible_entity(props[nxt], anchor_entities):
                 break
             lo = nxt
-
         for _ in range(after):
             nxt = hi + 1
             if nxt >= len(props):
@@ -190,7 +274,6 @@ class SemanticRepository:
             if entity_safe and not self._compatible_entity(props[nxt], anchor_entities):
                 break
             hi = nxt
-
         return lo, hi
 
     def _assemble_regions(
@@ -206,25 +289,18 @@ class SemanticRepository:
         by_doc: dict[str, list[SemanticMatch]] = {}
         for anchor in anchors:
             by_doc.setdefault(anchor.document_id, []).append(anchor)
-
         regions = []
         for doc_id, items in by_doc.items():
             doc = self.documents[doc_id]
             prop_index = {p.id: i for i, p in enumerate(doc.propositions)}
             selected = []
-
             for anchor in sorted(items, key=lambda x: prop_index[x.proposition_id]):
                 idx = prop_index[anchor.proposition_id]
                 lo, hi = self._expand_anchor_window(
-                    doc,
-                    idx,
-                    anchor.entity_id,
-                    before=before,
-                    after=after,
-                    entity_safe=entity_safe,
+                    doc, idx, anchor.entity_id,
+                    before=before, after=after, entity_safe=entity_safe,
                 )
                 selected.append([lo, hi, [anchor]])
-
             merged = []
             for lo, hi, group in selected:
                 if merged and lo <= merged[-1][1] + 1:
@@ -236,16 +312,12 @@ class SemanticRepository:
                         merged[-1][2].extend(group)
                         continue
                 merged.append([lo, hi, list(group)])
-
             for lo, hi, group in merged:
                 props = doc.propositions[lo : hi + 1]
                 anchor_ids = {a.proposition_id for a in group}
-                props = self._fit_proposition_budget(
-                    props, anchor_ids, max_context_chars
-                )
+                props = self._fit_proposition_budget(props, anchor_ids, max_context_chars)
                 if not props:
                     continue
-
                 start = min(p.source.start for p in props)
                 end = max(p.source.end for p in props)
                 region_entity_ids = sorted(
@@ -260,14 +332,18 @@ class SemanticRepository:
                         start_line=self._line_number(doc.text, start),
                         end_line=self._line_number(doc.text, max(start, end - 1)),
                         text=doc.text[start:end],
-                        anchor_proposition_ids=sorted(
-                            anchor_ids, key=lambda pid: prop_index[pid]
-                        ),
+                        anchor_proposition_ids=sorted(anchor_ids, key=lambda pid: prop_index[pid]),
                         entity_ids=region_entity_ids,
+                        source_uri=doc.source_uri,
+                        document_sha256=self._document_sha256(doc),
                     )
                 )
-
-        return sorted(regions, key=lambda r: r.score, reverse=True)[:top_k]
+        regions = sorted(regions, key=lambda r: r.score, reverse=True)[:top_k]
+        counters: dict[str, int] = {}
+        for region in regions:
+            counters[region.document_id] = counters.get(region.document_id, 0) + 1
+            region.region_id = f"{region.document_id}:R{counters[region.document_id]}"
+        return regions
 
     def search(
         self,
@@ -280,13 +356,11 @@ class SemanticRepository:
         after: int = 2,
         max_context_chars: int = 4000,
         entity_safe: bool = True,
-    ) -> list[EvidenceRegion]:
-        """Return Top-K source-grounded dynamic evidence regions."""
+    ) -> SearchResult:
+        """Return a structured, source-grounded transport result."""
         candidate_k = candidate_k or max(top_k * 10, 50)
-        anchors = self.search_units(
-            query, top_k=candidate_k, entity_filter=entity_filter
-        )
-        return self._assemble_regions(
+        anchors = self.search_units(query, top_k=candidate_k, entity_filter=entity_filter)
+        regions = self._assemble_regions(
             anchors,
             top_k=top_k,
             before=before,
@@ -294,26 +368,43 @@ class SemanticRepository:
             max_context_chars=max_context_chars,
             entity_safe=entity_safe,
         )
+        return SearchResult(query=query, regions=regions)
 
-    def build_context(self, results: list[EvidenceRegion]) -> str:
-        lines = ["=== EVIDENCE REGIONS ==="]
-        for r in results:
-            lines += [
-                f"[{r.document_id}] lines={r.start_line}-{r.end_line} score={r.score:.4f}",
-                f"anchors={','.join(r.anchor_proposition_ids)} entities={','.join(r.entity_ids)}",
-                r.text,
-                "",
-            ]
-        return "\n".join(lines).strip()
+    def locate(self, region: EvidenceRegion) -> dict:
+        """Return the canonical coordinates needed to locate evidence in its source."""
+        return region.to_dict()["source"] | {"region_id": region.region_id}
+
+    def get_source(
+        self,
+        region: EvidenceRegion,
+        *,
+        context_before: int = 0,
+        context_after: int = 0,
+    ) -> str:
+        """Recover exact source text, optionally with surrounding characters for review."""
+        doc = self.documents[region.document_id]
+        start = max(0, region.start_char - max(0, context_before))
+        end = min(len(doc.text), region.end_char + max(0, context_after))
+        return doc.text[start:end]
+
+    def verify_source(self, region: EvidenceRegion) -> bool:
+        """Verify document identity and exact region text against the stored source."""
+        doc = self.documents.get(region.document_id)
+        if doc is None:
+            return False
+        if region.document_sha256 != self._document_sha256(doc):
+            return False
+        return doc.text[region.start_char : region.end_char] == region.text
+
+    def build_context(self, results: SearchResult | list[EvidenceRegion]) -> str:
+        """Backward-compatible plain-text inspection / LLM context serializer."""
+        if isinstance(results, SearchResult):
+            return results.to_text()
+        return SearchResult(query="", regions=list(results)).to_text()
 
     def save(self, path: str) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                [d.to_dict() for d in self.documents.values()],
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
+        with open(path,"w",encoding="utf-8") as f:
+            json.dump([d.to_dict() for d in self.documents.values()], f, ensure_ascii=False, indent=2)
 
     @classmethod
     def load(cls, path: str, *, embedder=None) -> "SemanticRepository":

@@ -120,8 +120,14 @@ def relation_types(sentence: str, language: str):
     return pairs
 
 
-def compile(text: str, *, document_id: str="document", language: str="auto") -> SemanticDocument:
-    """장문의 plain text를 SemanticDocument로 변환 (Compile long plain text into a SemanticDocument)."""
+def compile(
+    text: str,
+    *,
+    document_id: str="document",
+    language: str="auto",
+    source_uri: str="",
+) -> SemanticDocument:
+    """Compile long plain text into a source-grounded SemanticDocument."""
     lang=detect_language(text) if language=="auto" else language
     entities={}; propositions=[]; relations=[]; current_entity="UNKNOWN"; pid_n=1
     for start,end,sentence in split_sentences(text):
@@ -143,4 +149,18 @@ def compile(text: str, *, document_id: str="document", language: str="auto") -> 
             from_id=sentence_prop_ids[0] if sentence_prop_ids else ""
             to_id=sentence_prop_ids[1] if len(sentence_prop_ids)>1 else None
             relations.append(Relation(id=f"R{len(relations)+1}",type=rtype,from_id=from_id,to_id=to_id,marker=marker))
-    return SemanticDocument(document_id=document_id,language=lang,text=text,entities=entities,propositions=propositions,relations=relations,diagnostics={"compiler":"semantic_json_rule_compiler_v0.1.0a4","grammar":"semantic_json_grammar_v0.1","source_grounded":all(p.source.text in text for p in propositions),"unknown_entity_propositions":sum(p.entity_id=="UNKNOWN" for p in propositions)})
+    return SemanticDocument(
+        document_id=document_id,
+        language=lang,
+        text=text,
+        entities=entities,
+        propositions=propositions,
+        relations=relations,
+        diagnostics={
+            "compiler":"semantic_json_rule_compiler_v0.1.0a7",
+            "grammar":"semantic_json_grammar_v0.1",
+            "source_grounded":all(p.source.text in text for p in propositions),
+            "unknown_entity_propositions":sum(p.entity_id=="UNKNOWN" for p in propositions),
+        },
+        source_uri=source_uri,
+    )
