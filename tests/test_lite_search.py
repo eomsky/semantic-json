@@ -1,4 +1,4 @@
-from semantic_json import compile, SemanticRepository, LiteEmbedder
+from semantic_json import compile, SemanticRepository, LiteEmbedder, EvidenceRegion
 
 
 def test_default_repository_uses_lite_embedder():
@@ -15,8 +15,16 @@ B기업은 현재까지 원리금을 정상적으로 상환하고 있다.
     doc = compile(text, document_id="test")
     repo = SemanticRepository()
     repo.add(doc)
+
     results = repo.search("B기업의 중장기 채무상환능력은 어떤가?", top_k=3)
     assert results
-    assert results[0].entity_id == "B_CORP"
-    assert results[0].proposition.scope.stance == "difficult_to_conclude"
-    assert results[0].proposition.scope.time == "medium_term"
+    assert isinstance(results[0], EvidenceRegion)
+    assert "B_CORP" in results[0].entity_ids
+    assert "상환능력이 유지된다고 단정하기는 어렵다" in results[0].text
+
+    # Unit-level inspection remains available explicitly for diagnostics.
+    units = repo.search_units("B기업의 중장기 채무상환능력은 어떤가?", top_k=3)
+    assert units
+    assert units[0].entity_id == "B_CORP"
+    assert any(u.proposition.scope.stance == "difficult_to_conclude" for u in units)
+    assert any(u.proposition.scope.time == "medium_term" for u in units)
