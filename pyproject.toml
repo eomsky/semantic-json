@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semantic-json-transport"
-version = "0.2.0a1"
+version = "0.2.0a2"
 description = "Query-conditioned dynamic EvidenceRegion construction with a default region compatibility encoder."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 lite = []
+# Dataset generation and LLM-teacher adapters themselves add no provider SDK.
+# This extra is only needed when users explicitly fine-tune an encoder.
 training = ["torch>=2.1"]
 dev = ["pytest>=8.0"]
 
