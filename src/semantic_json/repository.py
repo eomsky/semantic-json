@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import json
 import numpy as np
 from .schemas import SemanticDocument, Proposition
-from .embeddings import MultilingualE5Embedder
+from .embeddings import LiteEmbedder
 from .compiler import entity_mentions
 
 @dataclass
@@ -17,7 +17,9 @@ class SemanticMatch:
 class SemanticRepository:
     """벡터 DB 없이 NumPy로 동작하는 저장소 (In-memory NumPy semantic repository)."""
     def __init__(self, *, embedder=None):
-        self.documents={}; self.embedder=embedder; self._records=[]; self._matrix=None
+        # 기본값은 외부 모델 다운로드가 없는 LiteEmbedder
+        # (Default backend is LiteEmbedder with no external model download.)
+        self.documents={}; self.embedder=embedder or LiteEmbedder(); self._records=[]; self._matrix=None
 
     def add(self,doc: SemanticDocument) -> None:
         self.documents[doc.document_id]=doc; self._matrix=None
@@ -27,10 +29,10 @@ class SemanticRepository:
         return f"{aliases} {p.claim} time={s.time} stance={s.stance} polarity={s.polarity} speaker={s.speaker} condition={s.condition}"
 
     def build_index(self):
-        if self.embedder is None: self.embedder=MultilingualE5Embedder()
         self._records=[]; texts=[]
         for doc in self.documents.values():
-            for p in doc.propositions: self._records.append((doc,p)); texts.append(self._search_text(doc,p))
+            for p in doc.propositions:
+                self._records.append((doc,p)); texts.append(self._search_text(doc,p))
         self._matrix=self.embedder.encode_passages(texts) if texts else np.empty((0,0))
 
     def search(self,query: str, *, top_k: int=10, entity_filter: bool=True):
