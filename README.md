@@ -24,14 +24,17 @@ Semantic JSON is a lightweight semantic transport layer designed to **minimize l
 
 ## 설치 / Installation
 
+PyPI 배포명은 `semantic-json-transport`이며 Python import 이름은 `semantic_json`입니다.  
+The PyPI distribution is `semantic-json-transport`; the Python import remains `semantic_json`.
+
 ```bash
-pip install semantic-json
+pip install semantic-json-transport
 ```
 
 의미 기반 검색까지 사용하려면 / For semantic embedding search:
 
 ```bash
-pip install "semantic-json[search]"
+pip install "semantic-json-transport[search]"
 ```
 
 > 현재 버전은 `0.1.0a1` alpha입니다. API와 grammar는 변경될 수 있습니다.  
