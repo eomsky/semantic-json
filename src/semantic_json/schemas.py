@@ -4,12 +4,45 @@ from typing import Any
 
 @dataclass
 class Scope:
-    polarity: str = "positive"
-    modality: str = "asserted"
-    stance: str = "asserted"
-    time: str = ""
+    """독립적인 의미 범위 축 (Independent semantic scope dimensions)."""
+    proposition_polarity: str = "affirmative"
+    epistemic_status: str = "asserted"
+    temporal_scope: str = ""
     condition: str = ""
     speaker: str = ""
+
+    # 하위 호환 alias (Backward-compatible aliases)
+    @property
+    def polarity(self) -> str:
+        return "positive" if self.proposition_polarity == "affirmative" else "negative"
+
+    @property
+    def stance(self) -> str:
+        return self.epistemic_status
+
+    @property
+    def modality(self) -> str:
+        return self.epistemic_status
+
+    @property
+    def time(self) -> str:
+        return self.temporal_scope
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Scope":
+        # a1-a3 JSON도 읽을 수 있게 변환 (Read legacy a1-a3 serialized scopes)
+        polarity = data.get("proposition_polarity")
+        if polarity is None:
+            polarity = "negative" if data.get("polarity") == "negative" else "affirmative"
+        epistemic = data.get("epistemic_status", data.get("stance", data.get("modality", "asserted")))
+        temporal = data.get("temporal_scope", data.get("time", ""))
+        return cls(
+            proposition_polarity=polarity,
+            epistemic_status=epistemic,
+            temporal_scope=temporal,
+            condition=data.get("condition", ""),
+            speaker=data.get("speaker", ""),
+        )
 
 @dataclass
 class SourceSpan:
@@ -53,6 +86,24 @@ class SemanticDocument:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SemanticDocument":
-        props = [Proposition(id=p["id"], entity_id=p["entity_id"], claim=p["claim"], source=SourceSpan(**p["source"]), scope=Scope(**p.get("scope", {})), importance=p.get("importance", "supporting")) for p in data.get("propositions", [])]
+        props = [
+            Proposition(
+                id=p["id"],
+                entity_id=p["entity_id"],
+                claim=p["claim"],
+                source=SourceSpan(**p["source"]),
+                scope=Scope.from_dict(p.get("scope", {})),
+                importance=p.get("importance", "supporting"),
+            )
+            for p in data.get("propositions", [])
+        ]
         rels = [Relation(**r) for r in data.get("relations", [])]
-        return cls(document_id=data["document_id"], language=data.get("language", "auto"), text=data.get("text", ""), entities=data.get("entities", {}), propositions=props, relations=rels, diagnostics=data.get("diagnostics", {}))
+        return cls(
+            document_id=data["document_id"],
+            language=data.get("language", "auto"),
+            text=data.get("text", ""),
+            entities=data.get("entities", {}),
+            propositions=props,
+            relations=rels,
+            diagnostics=data.get("diagnostics", {}),
+        )
