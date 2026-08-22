@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semantic-json-transport"
-version = "0.1.0a6"
-description = "A lightweight semantic transport layer with query-time evidence region retrieval for LLM context construction."
+version = "0.1.0a7"
+description = "A lightweight semantic transport layer with structured JSON evidence, source provenance, and query-time evidence regions."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [{name = "Semantic JSON Contributors"}]
-keywords = ["llm", "rag", "semantic-search", "nlp", "retrieval", "finance"]
+keywords = ["llm", "rag", "semantic-search", "nlp", "retrieval", "provenance", "json"]
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
