@@ -18,6 +18,12 @@ from .region_models import (
     DEFAULT_REGION_MODEL,
 )
 from .training import (
+    DATASET_SCHEMA,
+    SAME_REGION,
+    SPLIT,
+    RegionQuery,
+    RegionCandidate,
+    TeacherDecision,
     RegionTrainingExample,
     LLMRegionTeacher,
     RegionDatasetBuilder,
@@ -25,7 +31,7 @@ from .training import (
 )
 from .schemas import SemanticDocument, Proposition, Relation, Scope, SourceSpan
 
-__version__ = "0.2.0a1"
+__version__ = "0.2.0a2"
 
 __all__ = [
     "compile",
@@ -43,6 +49,12 @@ __all__ = [
     "RegionCompatibilityEncoder",
     "HeuristicRegionModel",
     "DEFAULT_REGION_MODEL",
+    "DATASET_SCHEMA",
+    "SAME_REGION",
+    "SPLIT",
+    "RegionQuery",
+    "RegionCandidate",
+    "TeacherDecision",
     "RegionTrainingExample",
     "LLMRegionTeacher",
     "RegionDatasetBuilder",
