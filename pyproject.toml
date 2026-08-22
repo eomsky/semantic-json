@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "semantic-json"
+version = "0.1.0a1"
+description = "A lightweight semantic transport layer for preserving meaning before LLM context construction."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "Semantic JSON Contributors"}]
+keywords = ["llm", "rag", "semantic-search", "nlp", "retrieval", "finance"]
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+search = ["sentence-transformers>=3.0"]
+dev = ["pytest>=8.0", "sentence-transformers>=3.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semantic_json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
