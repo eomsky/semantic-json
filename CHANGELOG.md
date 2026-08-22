@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0a1
+
+- Reframe the core problem around query-conditioned Region Compatibility rather than precomputed semantic grammar.
+- Introduce fine-grained, contiguous `SemanticUnit` primitives with exact source coordinates.
+- Split retrieval into a Locator stage and a Composer stage.
+- Add a default CPU-capable `RegionCompatibilityEncoder` interface with a multilingual cross-encoder bootstrap checkpoint.
+- Add `HeuristicRegionModel` as an explicit lite fallback.
+- Add query-time boundary expansion driven by compatibility scores.
+- Keep distant source locations as independent EvidenceRegions.
+- Upgrade structured transport to `semantic-json-transport/context/v2` with unit IDs and boundary-decision traces.
+- Preserve source URI, line/character coordinates, SHA-256 verification, plain-text inspection, and exact source recovery.
+- Add `LLMRegionTeacher`, `RegionDatasetBuilder`, and `RegionEncoderTrainer` so users can label boundary pairs with their own LLM and fine-tune a small production encoder.
+- Keep v0.1 `compile()` and `SemanticDocument` APIs available for alpha migration, but recommend `SemanticRepository.add_text()` for new code.
+- Make `sentence-transformers` part of the default installation for the v0.2 encoder runtime.
+- Explicitly distinguish compatibility scores from calibrated probabilities.
+
 ## 0.1.0a7
 
 - Make `SearchResult` the canonical structured transport returned by `SemanticRepository.search()` while preserving iteration, indexing, length, and truthiness over evidence regions.
