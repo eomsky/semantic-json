@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "semantic-json-transport"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "A lightweight semantic transport layer for preserving meaning before LLM context construction."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,8 @@ keywords = ["llm", "rag", "semantic-search", "nlp", "retrieval", "finance"]
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
+transformers = ["sentence-transformers>=3.0"]
+# Backward-compatible alias. New users should prefer [transformers].
 search = ["sentence-transformers>=3.0"]
 dev = ["pytest>=8.0", "sentence-transformers>=3.0"]
 
