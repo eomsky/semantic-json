@@ -17,8 +17,6 @@ class SemanticMatch:
 class SemanticRepository:
     """벡터 DB 없이 NumPy로 동작하는 저장소 (In-memory NumPy semantic repository)."""
     def __init__(self, *, embedder=None):
-        # 기본값은 외부 모델 다운로드가 없는 LiteEmbedder
-        # (Default backend is LiteEmbedder with no external model download.)
         self.documents={}; self.embedder=embedder or LiteEmbedder(); self._records=[]; self._matrix=None
 
     def add(self,doc: SemanticDocument) -> None:
@@ -26,7 +24,7 @@ class SemanticRepository:
 
     def _search_text(self,doc,p):
         aliases=" ".join(doc.entities.get(p.entity_id,{}).get("aliases",[])); s=p.scope
-        return f"{aliases} {p.claim} time={s.time} stance={s.stance} polarity={s.polarity} speaker={s.speaker} condition={s.condition}"
+        return f"{aliases} {p.claim} temporal_scope={s.temporal_scope} epistemic_status={s.epistemic_status} proposition_polarity={s.proposition_polarity} speaker={s.speaker} condition={s.condition}"
 
     def build_index(self):
         self._records=[]; texts=[]
@@ -49,7 +47,12 @@ class SemanticRepository:
     def build_context(self,results, *, include_source: bool=True) -> str:
         lines=["=== SEMANTIC EVIDENCE ==="]
         for r in results:
-            p=r.proposition; lines += [f"[{r.document_id}/{p.id}] entity={p.entity_id}",f"claim: {p.claim}",f"scope: stance={p.scope.stance}, time={p.scope.time}, polarity={p.scope.polarity}"]
+            p=r.proposition; s=p.scope
+            lines += [
+                f"[{r.document_id}/{p.id}] entity={p.entity_id}",
+                f"claim: {p.claim}",
+                f"scope: epistemic_status={s.epistemic_status}, temporal_scope={s.temporal_scope}, proposition_polarity={s.proposition_polarity}",
+            ]
             if include_source: lines.append(f"source: {p.source.text}")
             lines.append("")
         return "\n".join(lines).strip()
