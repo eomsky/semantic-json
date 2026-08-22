@@ -1,17 +1,40 @@
 # Semantic JSON Transport
 
-> **LLM이 읽기 전에, 의미와 근거 위치를 보존합니다.**  
-> **Preserve meaning and source provenance before the LLM sees it.**
+> **Find the location cheaply. Compose the evidence for the query. Transport the original source.**
 
-Semantic JSON Transport는 장문의 자연어 문서에서 작은 semantic anchor를 검색하고, 질의 시점에 원문 EvidenceRegion을 동적으로 조립한 뒤 구조화된 transport로 전달하는 경량 retrieval layer입니다.
+Semantic JSON Transport builds **query-conditioned EvidenceRegions** from long documents. Documents are not pre-cut into final retrieval chunks.
 
-기본 설치는 생성형 LLM, GPU, PyTorch, Transformers 또는 외부 모델 다운로드를 요구하지 않습니다.
+## v0.2 core idea
 
-## Core principle
+The central operation is:
 
-> **Index small semantics; transport original evidence.**
+```text
+region_compatibility(query, left_span, right_span) -> compatibility score
+```
 
-Semantic unit은 최종 chunk가 아니라 원문으로 돌아가기 위한 anchor입니다. 최종 EvidenceRegion은 query 이후 조립되며 원문의 정확한 위치를 유지합니다.
+A document is represented as small, contiguous, source-grounded `SemanticUnit`s. A locator retrieves candidate units. A Region Compatibility Encoder then decides at query time whether neighboring source spans should travel together in the same EvidenceRegion.
+
+```text
+Long documents
+    ↓
+Fine-grained SemanticUnits + source coordinates
+    ↓
+Locator embedding index
+    ↓
+Query → candidate anchors
+    ↓
+Region Compatibility Encoder
+    ↓
+Query-conditioned boundary search
+    ↓
+Independent EvidenceRegions
+    ↓
+Structured JSON / plain text
+    ↓
+Downstream LLM
+```
+
+The indexed unit is **not** the final context. Final context is reconstructed from the original source after the query is known.
 
 ## Installation
 
@@ -19,80 +42,112 @@ Semantic unit은 최종 chunk가 아니라 원문으로 돌아가기 위한 anch
 pip install semantic-json-transport
 ```
 
-기본 dependency는 NumPy입니다. 더 강한 neural embedding이 필요하면:
+Version `0.2.0a1` makes the encoder runtime part of the default installation and is CPU-capable. The current default checkpoint is a multilingual cross-encoder **bootstrap checkpoint**. It establishes and exercises the Region Compatibility interface, but it is not presented as a calibrated, task-specific Semantic JSON checkpoint. A dedicated checkpoint must be trained and benchmarked before that claim is made.
 
-```bash
-pip install "semantic-json-transport[transformers]"
-```
+For a dependency-light boundary baseline, the package also keeps a lite mode.
 
-현재 버전은 `0.1.0a7` alpha입니다.
-
-## Quick Start
+## Quick start
 
 ```python
-from semantic_json import compile, SemanticRepository
+from semantic_json import SemanticRepository
 
 text = """
-B기업은 현재까지 원리금을 정상적으로 상환하고 있다.
-다만 주요 거래계약이 내년에 만료될 예정이며,
-중장기적으로 현재의 상환능력이 유지된다고 단정하기는 어렵다.
+B기업은 주요 거래처와 공급계약을 체결하고 있다.
+해당 계약은 내년 말 만료될 예정이다.
+해당 거래처 매출 의존도는 높은 수준이다.
+중장기 상환능력을 낙관하기 어렵다.
 """
 
-doc = compile(
+repo = SemanticRepository()
+repo.add_text(
     text,
     document_id="company_b",
-    source_uri="file:///credit/company_b.txt",
+    source_uri="documents/company_b.txt",
 )
-repo = SemanticRepository()
-repo.add(doc)
 
-result = repo.search("B기업의 중장기 채무상환능력은 어떤가?")
+result = repo.search("B기업의 중장기 상환능력", top_k=5)
 
-# Canonical structured transport
-print(result.to_json())
-
-# Human-readable retrieval inspection / plain-text LLM context
-print(result.to_text())
+print(result.to_json())   # canonical structured transport
+print(result.to_text())   # human-readable retrieval inspection
 ```
 
-`SearchResult`는 structured transport 객체이면서 기존 region list 사용법을 최대한 유지합니다.
+Lite fallback:
 
 ```python
-first_region = result[0]
-for region in result:
-    print(region.document_id, region.text)
+from semantic_json import SemanticRepository, LiteEmbedder
+
+repo = SemanticRepository(
+    embedder=LiteEmbedder(),
+    region_model="lite",
+)
 ```
+
+## SemanticUnit
+
+`SemanticUnit` is a fine-grained, contiguous source span. It may be smaller than a sentence. It is a retrieval/composition primitive, not a final chunk and not a rewritten summary.
+
+```text
+Original source
+    ↓
+U1 | U2 | U3 | ... | Un
+```
+
+Every unit retains exact source coordinates. The default `FineGrainedUnitizer` is deterministic and replaceable so sentence-, clause-, proposition-, tokenizer-, or learned unitizers can be compared without changing the retrieval/transport contract.
+
+## Locator + Composer
+
+### Stage 1 — Locator
+
+The locator uses inexpensive embedding search to identify candidate source locations.
+
+```text
+Query → embedding retrieval → U37, U91, U240 ...
+```
+
+### Stage 2 — Composer
+
+For each candidate location, the Region Compatibility Model evaluates neighboring spans in the context of the query.
+
+```text
+compatibility(query, left_span, right_span)
+```
+
+The boundary search expands while compatibility remains high enough. Distant locations remain independent EvidenceRegions rather than becoming one giant chunk.
+
+Compatibility outputs are called **scores**, not probabilities, unless a model has been explicitly calibrated.
 
 ## Canonical structured transport
 
-기본 검색 결과는 versioned schema를 가진 구조화된 객체입니다.
+Search returns `SearchResult`, whose canonical serialization is JSON.
 
 ```json
 {
-  "schema": "semantic-json-transport/context/v1",
-  "query": "B기업의 중장기 채무상환능력은 어떤가?",
-  "region_count": 2,
-  "document_count": 1,
+  "schema": "semantic-json-transport/context/v2",
+  "query": "B기업의 중장기 상환능력",
   "documents": [
     {
-      "document_id": "doc_002",
-      "source_uri": "file:///credit/doc_002.txt",
-      "document_sha256": "...",
+      "document_id": "company_b",
       "regions": [
         {
-          "region_id": "doc_002:R1",
+          "region_id": "company_b:R1",
           "score": 0.87,
-          "entities": ["B_CORP"],
           "source": {
-            "document_id": "doc_002",
-            "uri": "file:///credit/doc_002.txt",
-            "start_char": 12873,
-            "end_char": 13921,
-            "start_line": 120,
-            "end_line": 145,
+            "start_char": 42,
+            "end_char": 181,
+            "start_line": 2,
+            "end_line": 4,
             "document_sha256": "..."
           },
-          "anchors": ["P14", "P15"],
+          "anchors": ["U4"],
+          "units": ["U2", "U3", "U4"],
+          "boundaries": [
+            {
+              "left_unit_id": "U2",
+              "right_unit_id": "U3",
+              "compatibility_score": 0.81,
+              "included": true
+            }
+          ],
           "text": "원문 그대로..."
         }
       ]
@@ -101,110 +156,86 @@ for region in result:
 }
 ```
 
-하나의 문서에서 관련 evidence가 여러 곳에 떨어져 있으면 여러 EvidenceRegion으로 유지하고 structured output에서 같은 document 아래 그룹화합니다.
-
-## Plain-text inspection
-
-JSON은 machine/LLM transport의 canonical representation이고, 평문은 retrieval 품질을 사람이 빠르게 확인하는 first-class inspection mode입니다.
+Plain text remains a first-class mode for retrieval inspection:
 
 ```python
 print(result.to_text())
-# 또는 기존 API
-print(repo.build_context(result))
 ```
 
-평문에는 document, line/character coordinates, score, anchor/entity와 원문 region text가 표시됩니다.
+## Source provenance and verification
 
-## Source provenance and evidence verification
-
-EvidenceRegion의 원문 좌표가 canonical reference입니다. `text`는 해당 좌표에서 복원된 원문입니다.
+The source is authoritative. Every EvidenceRegion can be located and verified against the original document.
 
 ```python
 region = result[0]
-
 repo.locate(region)
-# document_id / source URI / start-end char / line / SHA-256
-
 repo.get_source(region)
-# region의 정확한 원문
-
 repo.get_source(region, context_before=500, context_after=500)
-# 사람이 근거를 검토할 수 있도록 앞뒤 원문 포함
-
 repo.verify_source(region)
-# True: document hash와 exact source slice가 일치
 ```
 
-이를 통해 downstream LLM의 답변에서 EvidenceRegion을 다시 원문 위치로 연결하는 audit/provenance UI를 구축할 수 있습니다.
-
-## Retrieval architecture
-
-```text
-Long Documents
-    ↓
-Semantic Compiler
-    ↓
-small source-grounded semantic units
-    ↓
-semantic index
-    ↓
-Query
-    ↓
-semantic anchor retrieval
-    ↓
-entity-safe source expansion / clustering
-    ↓
-query-time EvidenceRegion assembly
-    ↓
-SearchResult
-    ├─ structured JSON transport (canonical)
-    ├─ plain-text inspection
-    └─ source locator / verification
-    ↓
-downstream LLM / agent / audit UI
-```
-
-문법 적용 단위와 최종 retrieval 단위는 동일할 필요가 없습니다. Proposition은 작은 semantic anchor이고 EvidenceRegion은 query 이후 만들어지는 원문 context입니다.
-
-## Retrieval backends
-
-### LiteEmbedder — default
-
-NumPy와 deterministic hashing 및 작은 한·영 semantic normalization lexicon을 사용합니다. 외부 모델 다운로드가 없습니다.
-
-### MultilingualE5Embedder — optional
-
-`sentence-transformers`와 `intfloat/multilingual-e5-small`을 사용하는 선택형 backend입니다.
+The core invariant is:
 
 ```python
-from semantic_json import SemanticRepository, MultilingualE5Embedder
-repo = SemanticRepository(embedder=MultilingualE5Embedder())
+document.text[region.start_char:region.end_char] == region.text
 ```
 
-Embedding backend는 Semantic JSON Transport의 semantic/provenance contract와 분리되어 있습니다.
+## Bring your own LLM teacher
 
-## Current limitations
+An LLM can be used **offline as a judge**, never as a mandatory production dependency. The teacher labels whether adjacent spans should be transported together for a query; those examples can fine-tune the small Region Compatibility Encoder.
 
-현재 alpha는 긴 plain text를 대상으로 합니다. 표, 이미지, PDF layout은 아직 처리하지 않습니다. Rule-based compiler와 LiteEmbedder는 완전한 자연어 이해 시스템이 아닙니다. 특히 범용 entity resolution과 discourse grammar는 향후 강화 대상입니다.
+```python
+from semantic_json import (
+    LLMRegionTeacher,
+    RegionDatasetBuilder,
+    RegionEncoderTrainer,
+    DEFAULT_REGION_MODEL,
+)
 
-## Roadmap
+teacher = LLMRegionTeacher(my_judge_callable, name="internal-llm")
+builder = RegionDatasetBuilder(teacher)
 
-- [x] Long plain-text → SemanticDocument
-- [x] Source-span provenance
-- [x] Semantic JSON Grammar v0.1
-- [x] NumPy-only LiteEmbedder
-- [x] Optional sentence-transformers backend
-- [x] Query-time EvidenceRegion assembly
-- [x] Entity-safe region expansion
-- [x] Canonical structured JSON transport
-- [x] Plain-text retrieval inspection
-- [x] Source locator / recovery / verification
-- [ ] Fixed-chunk vector RAG comparative benchmark
-- [ ] Semantic loss / evidence quality diagnostics
-- [ ] Stronger Korean/English discourse grammar
-- [ ] Relation-aware expansion
-- [ ] Persistent SQLite repository
-- [ ] Optional FAISS/Qdrant/pgvector adapters
+examples = builder.label_pairs([
+    (query, left_span, right_span),
+])
+
+trainer = RegionEncoderTrainer(DEFAULT_REGION_MODEL)
+trainer.fit(examples, output_path="./my-region-encoder")
+```
+
+Use the trained encoder in production:
+
+```python
+from semantic_json import RegionCompatibilityEncoder, SemanticRepository
+
+region_model = RegionCompatibilityEncoder("./my-region-encoder")
+repo = SemanticRepository(region_model=region_model)
+```
+
+Fine-tuning is always explicit. Semantic JSON Transport never silently modifies a production model at runtime.
+
+## Backward compatibility
+
+The v0.1 `compile()` / `SemanticDocument` grammar APIs remain available during the alpha transition. `SemanticRepository.add(SemanticDocument)` converts proposition source spans into v0.2 source units. New applications should prefer `add_text()`.
+
+## v0.2 design principles
+
+- No final fixed chunks at ingestion time.
+- Fine-grained source units increase retrieval/composition resolution.
+- Region boundaries are query-conditioned.
+- The Region Compatibility Model is pluggable.
+- Compatibility score is not called probability without calibration.
+- Distant evidence remains in independent EvidenceRegions.
+- Original source text and provenance remain authoritative.
+- Structured JSON is canonical transport; plain text is first-class inspection.
+- Entity, relation, discourse, layout, and other structure are optional evidence signals for compatibility—not the project objective themselves.
+- A user-provided LLM may teach a small encoder offline; production inference stays encoder-based.
+
+## Evaluation direction
+
+The v0.2 benchmark should separate locator quality from composer quality and compare against conventional fixed-chunk RAG using the same retrieval backbone where possible.
+
+Primary metrics include Evidence Recall, Evidence Precision, Boundary IoU, token efficiency, contamination rate, latency, memory, and downstream answer quality.
 
 ## License
 
