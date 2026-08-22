@@ -42,9 +42,15 @@ The indexed unit is **not** the final context. Final context is reconstructed fr
 pip install semantic-json-transport
 ```
 
-Version `0.2.0a1` makes the encoder runtime part of the default installation and is CPU-capable. The current default checkpoint is a multilingual cross-encoder **bootstrap checkpoint**. It establishes and exercises the Region Compatibility interface, but it is not presented as a calibrated, task-specific Semantic JSON checkpoint. A dedicated checkpoint must be trained and benchmarked before that claim is made.
+Version `0.2.0a2` makes the encoder runtime part of the default installation and adds the Region Compatibility Dataset v0.1 generation pipeline. The current default checkpoint is a multilingual cross-encoder **bootstrap checkpoint**. It establishes and exercises the Region Compatibility interface, but it is not presented as a calibrated, task-specific Semantic JSON checkpoint. A dedicated checkpoint must be trained and benchmarked before that claim is made.
 
-For a dependency-light boundary baseline, the package also keeps a lite mode.
+Fine-tuning tools are explicit and optional:
+
+```bash
+pip install "semantic-json-transport[training]"
+```
+
+The dataset builder and LLM-teacher adapter do not depend on any specific LLM provider SDK. Users supply their own judge callable.
 
 ## Quick start
 
@@ -180,27 +186,56 @@ The core invariant is:
 document.text[region.start_char:region.end_char] == region.text
 ```
 
+## Region Compatibility Dataset v0.1
+
+The package can generate candidate training pairs directly from source documents and queries. It includes adjacent pairs, semantically difficult non-adjacent/cross-document candidates, and easy separated candidates. Hard candidates are never assumed to be negatives; the teacher still labels them.
+
+```python
+from semantic_json import LLMRegionTeacher, RegionDatasetBuilder, RegionQuery
+
+teacher = LLMRegionTeacher(my_judge_callable, name="internal-llm")
+builder = RegionDatasetBuilder(teacher, random_seed=13)
+
+examples = builder.build(
+    documents={"doc_001": text1, "doc_002": text2},
+    queries=[
+        RegionQuery(
+            "B기업의 중장기 상환능력 관련 근거",
+            query_id="Q001",
+            document_id="doc_002",
+        )
+    ],
+    hard_candidates_per_query=20,
+    easy_candidates_per_query=10,
+)
+
+builder.save_jsonl(examples, "region_dataset.jsonl")
+print(builder.summarize(examples))
+```
+
+Teacher output may include `label`, `score`, `confidence`, and `reason_codes`. Scores remain teacher scores rather than claimed probabilities. Low-confidence examples can be excluded or human-reviewed.
+
+See [`docs/region_dataset_v0.1.md`](docs/region_dataset_v0.1.md) for the complete schema and recommended workflow.
+
 ## Bring your own LLM teacher
 
-An LLM can be used **offline as a judge**, never as a mandatory production dependency. The teacher labels whether adjacent spans should be transported together for a query; those examples can fine-tune the small Region Compatibility Encoder.
+An LLM can be used **offline as a judge**, never as a mandatory production dependency. The teacher labels whether spans should be transported together for a query; those examples can fine-tune the small Region Compatibility Encoder.
 
 ```python
 from semantic_json import (
-    LLMRegionTeacher,
     RegionDatasetBuilder,
     RegionEncoderTrainer,
     DEFAULT_REGION_MODEL,
 )
 
-teacher = LLMRegionTeacher(my_judge_callable, name="internal-llm")
-builder = RegionDatasetBuilder(teacher)
-
-examples = builder.label_pairs([
-    (query, left_span, right_span),
-])
-
+examples = RegionDatasetBuilder.load_jsonl("region_dataset.jsonl")
 trainer = RegionEncoderTrainer(DEFAULT_REGION_MODEL)
-trainer.fit(examples, output_path="./my-region-encoder")
+trainer.fit(
+    examples,
+    output_path="./my-region-encoder",
+    epochs=2,
+    min_teacher_confidence="medium",
+)
 ```
 
 Use the trained encoder in production:
@@ -217,26 +252,3 @@ Fine-tuning is always explicit. Semantic JSON Transport never silently modifies 
 ## Backward compatibility
 
 The v0.1 `compile()` / `SemanticDocument` grammar APIs remain available during the alpha transition. `SemanticRepository.add(SemanticDocument)` converts proposition source spans into v0.2 source units. New applications should prefer `add_text()`.
-
-## v0.2 design principles
-
-- No final fixed chunks at ingestion time.
-- Fine-grained source units increase retrieval/composition resolution.
-- Region boundaries are query-conditioned.
-- The Region Compatibility Model is pluggable.
-- Compatibility score is not called probability without calibration.
-- Distant evidence remains in independent EvidenceRegions.
-- Original source text and provenance remain authoritative.
-- Structured JSON is canonical transport; plain text is first-class inspection.
-- Entity, relation, discourse, layout, and other structure are optional evidence signals for compatibility—not the project objective themselves.
-- A user-provided LLM may teach a small encoder offline; production inference stays encoder-based.
-
-## Evaluation direction
-
-The v0.2 benchmark should separate locator quality from composer quality and compare against conventional fixed-chunk RAG using the same retrieval backbone where possible.
-
-Primary metrics include Evidence Recall, Evidence Precision, Boundary IoU, token efficiency, contamination rate, latency, memory, and downstream answer quality.
-
-## License
-
-Apache-2.0
