@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0a7
+
+- Make `SearchResult` the canonical structured transport returned by `SemanticRepository.search()` while preserving iteration, indexing, length, and truthiness over evidence regions.
+- Add `SearchResult.to_dict()` and `to_json()` with the versioned `semantic-json-transport/context/v1` schema.
+- Group multiple independent EvidenceRegions under their source document in structured transport output.
+- Keep plain-text retrieval inspection through `SearchResult.to_text()` and backward-compatible `build_context()`.
+- Add stable region IDs, optional `source_uri`, exact character/line coordinates, and document SHA-256 provenance.
+- Add `locate()`, `get_source()`, and `verify_source()` for audit and source-grounded evidence review.
+- Add regression tests for structured transport, plain-text inspection, source recovery, and tamper detection.
+
 ## 0.1.0a6
 
 - Make query-time EvidenceRegion expansion entity-safe by default.
