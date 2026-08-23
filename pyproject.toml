@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "semantic-json-transport"
+version = "0.2.0a4"
+description = "Query-conditioned EvidenceRegion transport with source-grounded retrieval and research-preview evidence construction architecture."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "Semantic JSON Contributors"}]
+keywords = ["llm", "rag", "semantic-search", "dynamic-chunking", "evidence-retrieval", "retrieval", "provenance", "json"]
+dependencies = [
+  "numpy>=1.26",
+  "sentence-transformers>=3.0",
+]
+
+[project.optional-dependencies]
+lite = []
+training = ["torch>=2.1"]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semantic_json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+examples/credit_review_100docs/documents/doc_0[0-9][3-9].txt
+examples/credit_review_100docs/documents/doc_[0-9][1-9][0-9].txt
